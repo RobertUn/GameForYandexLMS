@@ -1,3 +1,4 @@
+import random
 import time
 
 import pygame
@@ -55,7 +56,7 @@ class Player:
     def __init__(self, x, y):
         self.x = x * 40  # Преобразуем координаты из клеток в пиксели
         self.y = y * 40
-        self.speed = 2  # Скорость движения
+        self.speed = 10  # Скорость движения
         self.velocity_x = 0
         self.velocity_y = 0
 
@@ -154,6 +155,82 @@ class Player:
         screen.blit(current_frame, (screen_x, screen_y))
 
 
+class Enemy:
+    def __init__(self, x, y):
+        self.x = x * 40  # Преобразуем координаты в пиксели
+        self.y = y * 40
+        self.speed = 2  # Скорость движения
+        self.direction = random.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])  # Рандомное направление
+
+        # Загрузка анимаций
+        frames = [pygame.image.load(f"textures/enemy/Enemywalk{i}.png").convert_alpha() for i in range(1, 6)]
+        self.frames_right = [pygame.transform.scale(frame, (35, 35)) for frame in frames]
+        self.frames_left = [pygame.transform.flip(frame, True, False) for frame in self.frames_right]
+        self.frames_up = self.frames_right  # Если будут разные анимации - замени
+        self.frames_down = self.frames_right
+
+        self.current_frames = self.frames_down  # По умолчанию идет вниз
+        self.current_frame_index = 0
+        self.animation_speed = 0.2  # Скорость анимации
+        self.last_update = pygame.time.get_ticks()
+
+    def update(self, level_map):
+        """Обновляет движение врага и анимацию"""
+        new_x = self.x + self.direction[0] * self.speed
+        new_y = self.y + self.direction[1] * self.speed
+
+        if not self.check_collision(new_x, new_y, level_map):
+            self.x = new_x
+            self.y = new_y
+        else:
+            self.change_direction()
+
+        # Обновление анимации
+        now = pygame.time.get_ticks()
+        if now - self.last_update > self.animation_speed * 1000:
+            self.last_update = now
+            self.current_frame_index = (self.current_frame_index + 1) % len(self.current_frames)
+
+        # Обновляем анимацию
+        now = pygame.time.get_ticks()
+        if now - self.last_update > self.animation_speed * 1000:
+            self.last_update = now
+            self.current_frame_index = (self.current_frame_index + 1) % len(self.current_frames)
+
+    def change_direction(self):
+        """Меняет направление движения при столкновении"""
+        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        directions.remove(self.direction)  # Исключаем текущее направление
+        self.direction = random.choice(directions)
+
+        # Обновляем текущую анимацию
+        if self.direction == (1, 0):  # Вправо
+            self.current_frames = self.frames_right
+        elif self.direction == (-1, 0):  # Влево
+            self.current_frames = self.frames_left
+        elif self.direction == (0, -1):  # Вверх
+            self.current_frames = self.frames_up
+        elif self.direction == (0, 1):  # Вниз
+            self.current_frames = self.frames_down
+
+    def check_collision(self, x, y, level_map):
+        """Проверяет, столкнулся ли враг со стеной"""
+        enemy_rect = pygame.Rect(x, y, 40, 40)  # Хитбокс врага
+
+        for row_idx, row in enumerate(level_map):
+            for col_idx, tile in enumerate(row):
+                if tile == '1':  # Стены
+                    wall_rect = pygame.Rect(col_idx * 40, row_idx * 40, 40, 40)
+                    if enemy_rect.colliderect(wall_rect):  # Проверка пересечения
+                        return True
+        return False
+
+    def draw(self, screen, camera):
+        """Рисует врага на экране с учетом камеры"""
+        screen_x, screen_y = camera.apply(self)
+        screen.blit(self.current_frames[self.current_frame_index], (screen_x, screen_y))
+
+
 class Camera:
     def __init__(self, width, height):
         self.offset_x = 0
@@ -176,8 +253,9 @@ class Camera:
 
 
 class DesertLevel:
-    def __init__(self, screen):
+    def __init__(self, screen, game):
         self.screen = screen
+        self.game = game  # Сохраняем ссылку на объект Game
         self.tile_size = 40
         self.start_time = time.time()
         self.load_textures()
@@ -188,11 +266,18 @@ class DesertLevel:
 
         # Ищем стартовую позицию игрока
         self.player = None
+        self.enemies = []  # Список врагов
+
+        self.is_game_over = False  # Флаг завершения уровня
+
         for y, row in enumerate(self.map_data):
             for x, tile in enumerate(row):
                 if tile == '@':
                     self.player = Player(x, y)
                     self.map_data[y][x] = '0'
+                elif tile == '*':  # Враг
+                    self.enemies.append(Enemy(x, y))
+                    self.map_data[y][x] = '0'  # Очищаем клетку
 
     def load_textures(self):
         """Загрузка текстур"""
@@ -217,8 +302,18 @@ class DesertLevel:
 
     def update(self):
         """Обновляет состояние уровня"""
+        if self.is_game_over:  # Если уровень завершён, прекращаем обновление
+            return
+
         self.player.update(self.map_data)
         self.camera.update(self.player)  # Камера следует за игроком
+
+        for enemy in self.enemies:
+            enemy.update(self.map_data)
+
+        self.check_defeat()  # Проверяем поражение
+        self.check_victory()  # Проверяем победу
+
         self.draw()
         pygame.display.flip()
 
@@ -232,6 +327,10 @@ class DesertLevel:
                 self.screen.blit(texture, (screen_x, screen_y))
 
         self.player.draw(self.screen, self.camera)
+
+        for enemy in self.enemies:
+            enemy.draw(self.screen, self.camera)  # Отрисовываем врагов
+
         self.draw_timer()
 
     def draw_timer(self):
@@ -241,6 +340,75 @@ class DesertLevel:
         timer_text = font.render(f"Time: {elapsed_time}s", True, (255, 255, 255))
         text_rect = timer_text.get_rect(center=(self.screen.get_width() // 2, 20))
         self.screen.blit(timer_text, text_rect)
+
+    def check_defeat(self):
+        """Проверяет столкновение игрока с врагами"""
+        player_rect = pygame.Rect(self.player.x, self.player.y, 35, 35)  # Хитбокс игрока
+
+        for enemy in self.enemies:
+            enemy_rect = pygame.Rect(enemy.x, enemy.y, 35, 35)  # Хитбокс врага
+            if player_rect.colliderect(enemy_rect):  # Проверяем столкновение
+                self.game_over(False)  # Вызываем проигрыш
+                return
+
+    def check_victory(self):
+        """Проверяет, дошёл ли игрок до выхода"""
+        player_tile_x = self.player.x // 40
+        player_tile_y = self.player.y // 40
+
+        if self.map_data[player_tile_y][player_tile_x] == '2':  # Выход
+            self.game_over(True)  # Вызываем победу
+
+    def game_over(self, victory):
+        """Завершает уровень (победа или поражение)"""
+        if self.is_game_over:  # Если уровень уже завершён, ничего не делаем
+            return
+
+        self.is_game_over = True  # Устанавливаем флаг завершения уровня
+        self.screen.fill("BLACK")
+
+        if victory:
+            self.game.completed_levels.add("Desert")  # Добавляем уровень в пройденные
+            with open("data/progress.txt", "r") as file:
+                lines = file.readlines()
+            if "Desert" not in lines:
+                with open("data/progress.txt", "w") as file:
+                    file.write("Desert\n")
+
+        # Вычисляем время прохождения
+        elapsed_time = int(time.time() - self.start_time)
+
+        font = pygame.font.Font("textures/font/Aladin-Regular.ttf", 48)
+        message = "Victory!" if victory else "Defeat!"
+        text = font.render(message, True, (255, 0, 0))
+        text_rect = text.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 3))
+
+        time_font = pygame.font.Font("textures/font/Aladin-Regular.ttf", 42)
+        time_text = time_font.render(f"Time: {elapsed_time}", True, (255, 0, 0))
+        time_rect = time_text.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 - 50))
+
+        button_font = pygame.font.Font("textures/font/Aladin-Regular.ttf", 36)
+        button_text = button_font.render("OK", True, (255, 0, 0))
+        button_rect = pygame.Rect(self.screen.get_width() // 2 - 100, self.screen.get_height() // 2, 200, 100)
+
+        while True:
+            self.screen.fill("BLACK")
+            self.screen.blit(text, text_rect)
+            self.screen.blit(time_text, time_rect)
+            pygame.draw.rect(self.screen, (0, 0, 0), button_rect)
+            self.screen.blit(button_text, button_text.get_rect(center=button_rect.center))
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if button_rect.collidepoint(event.pos):
+                        self.game.current_screen = MainScreen(self.screen, self.game.completed_levels,
+                                                              self.game)  # Возвращаемся в меню
+
+                        return  # Выход из экрана завершения
 
 
 class Game:
@@ -257,7 +425,7 @@ class Game:
     def start_level(self, level_name):
         """Запуск уровня"""
         if level_name == "Desert":
-            self.current_screen = DesertLevel(self.screen)
+            self.current_screen = DesertLevel(self.screen, self)
 
     def load_progress(self):
         """Загрузка прогресса"""
