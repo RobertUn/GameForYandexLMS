@@ -3,6 +3,27 @@ import time
 
 import pygame
 
+# ТЕКСТУРЫ И КАРТЫ УРОВНЕЙ
+DESERT_LEVEL_MAP = "data/levels/desert_level_map.txt"
+DESERT_LEVEL_TEXTURES = ["textures/levels/Desert/wall.png",
+                         "textures/levels/Desert/path.png",
+                         "textures/levels/Desert/exit.png"
+                         ]
+
+OCEAN_LEVEL_MAP = "data/levels/ocean_level_map.txt"
+OCEAN_LEVEL_TEXTURES = ["textures/levels/Ocean/wall.png",
+                        "textures/levels/Ocean/path.png",
+                        "textures/levels/Ocean/exit.png"
+
+                        ]
+
+HELL_LEVEL_MAP = "data/levels/hell_level_map.txt"
+HELL_LEVEL_TEXTURES = ["textures/levels/Hell/wall.png",
+                       "textures/levels/Hell/path.png",
+                       "textures/levels/Hell/exit.png"
+
+                       ]
+
 
 class MainScreen:
     def __init__(self, screen, completed_levels, game):
@@ -45,6 +66,10 @@ class MainScreen:
         if 350 < x < 450:
             if 285 < y < 315:
                 self.game.start_level("Desert")
+            elif 335 < y < 365:
+                self.game.start_level("Ocean")
+            elif 385 < y < 415:
+                self.game.start_level("Hell")
 
     def update(self):
         """Обновление экрана"""
@@ -56,9 +81,10 @@ class Player:
     def __init__(self, x, y):
         self.x = x * 40  # Преобразуем координаты из клеток в пиксели
         self.y = y * 40
-        self.speed = 10  # Скорость движения
+        self.speed = 5  # Скорость движения
         self.velocity_x = 0
         self.velocity_y = 0
+        self.state_rage = False
 
         # Загрузка кадров анимации
         fremes = [pygame.image.load(f"textures/player/walk/Playerwalk{i}.png").convert_alpha() for i in range(1, 6)]
@@ -154,6 +180,16 @@ class Player:
 
         screen.blit(current_frame, (screen_x, screen_y))
 
+    def activate_rage(self):
+        """Активирует состояние ярости"""
+        self.state_rage = True
+        self.speed = 8
+
+    def deactivate_rage(self):
+        """Деактивирует состояние ярости"""
+        self.state_rage = False
+        self.speed = 5
+
 
 class Enemy:
     def __init__(self, x, y):
@@ -231,6 +267,26 @@ class Enemy:
         screen.blit(self.current_frames[self.current_frame_index], (screen_x, screen_y))
 
 
+class Potion:
+    def __init__(self, x, y):
+        self.x = x * 40  # Преобразуем координаты из клеток в пиксели
+        self.y = y * 40
+        self.texture = pygame.image.load(
+            "textures/levels/potion.png").convert_alpha()  # Загружаем текстуру зелья
+        self.texture = pygame.transform.scale(self.texture, (40, 40))  # Масштабируем текстуру
+
+    def check_collision(self, player):
+        """Проверяет столкновение зелья с игроком"""
+        potion_rect = pygame.Rect(self.x, self.y, 40, 40)  # Хитбокс зелья
+        player_rect = pygame.Rect(player.x, player.y, 35, 35)  # Хитбокс игрока
+        return potion_rect.colliderect(player_rect)  # Проверяем пересечение
+
+    def draw(self, screen, camera):
+        """Отрисовывает зелье с учетом камеры"""
+        screen_x, screen_y = camera.apply(self)
+        screen.blit(self.texture, (screen_x, screen_y))
+
+
 class Camera:
     def __init__(self, width, height):
         self.offset_x = 0
@@ -252,14 +308,19 @@ class Camera:
         return x * tile_size - self.offset_x, y * tile_size - self.offset_y
 
 
-class DesertLevel:
-    def __init__(self, screen, game):
+class ShowLevel:
+    def __init__(self, screen, textures, map, next_level, game):
         self.screen = screen
         self.game = game  # Сохраняем ссылку на объект Game
         self.tile_size = 40
         self.start_time = time.time()
-        self.load_textures()
-        self.load_map("data/levels/desert_level_map.txt")
+        self.load_textures(textures)
+        self.load_map(map)
+        self.next_level = next_level
+
+        # Атрибуты ярости игрока
+        self.state_player_rage = False
+        self.rage_start_time = 0  # Время активации ярости
 
         # Создаем камеру
         self.camera = Camera(screen.get_width(), screen.get_height())
@@ -267,6 +328,7 @@ class DesertLevel:
         # Ищем стартовую позицию игрока
         self.player = None
         self.enemies = []  # Список врагов
+        self.potions = []  # Список зелий
 
         self.is_game_over = False  # Флаг завершения уровня
 
@@ -278,17 +340,19 @@ class DesertLevel:
                 elif tile == '*':  # Враг
                     self.enemies.append(Enemy(x, y))
                     self.map_data[y][x] = '0'  # Очищаем клетку
+                elif tile == '#':  # Зелье
+                    self.potions.append(Potion(x, y))
+                    self.map_data[y][x] = '0'
 
-    def load_textures(self):
+    def load_textures(self, textures):
         """Загрузка текстур"""
         self.textures = {
-            '1': pygame.image.load("textures/levels/Desert/wall.png").convert_alpha(),  # Стена
-            '0': pygame.image.load("textures/levels/Desert/path.png").convert_alpha(),  # Проход
-            '2': pygame.image.load("textures/levels/Desert/exit.png").convert_alpha(),  # Выход
-            '@': pygame.image.load("textures/levels/Desert/path.png").convert_alpha(),  # Игрок (будет заменён на класс)
-            '#': pygame.image.load("textures/levels/Desert/path.png").convert_alpha(),
-            # Зелье (будет заменено на класс)
-            '*': pygame.image.load("textures/levels/Desert/path.png").convert_alpha()  # Враг (будет заменён на класс)
+            '1': pygame.image.load(textures[0]).convert_alpha(),  # Стена
+            '0': pygame.image.load(textures[1]).convert_alpha(),  # Проход
+            '2': pygame.image.load(textures[2]).convert_alpha(),  # Выход
+            '@': pygame.image.load(textures[1]).convert_alpha(),  # Игрок (будет заменён на класс)
+            '#': pygame.image.load(textures[1]).convert_alpha(),  # Зелье
+            '*': pygame.image.load(textures[1]).convert_alpha()  # Враг (будет заменён на класс)
         }
 
     def load_map(self, filename):
@@ -311,8 +375,19 @@ class DesertLevel:
         for enemy in self.enemies:
             enemy.update(self.map_data)
 
+        # Проверяем столкновение игрока с зельями
+        for potion in self.potions:
+            if potion.check_collision(self.player):
+                self.potions.remove(potion)  # Убираем зелье из списка
+                self.player.activate_rage()  # Активируем состояние ярости
+                self.rage_start_time = time.time()  # Запоминаем время активации ярости
+
+        # Проверяем, истекло ли время ярости
+        if self.player.state_rage and time.time() - self.rage_start_time > 5:  # 5 секунд ярости
+            self.player.deactivate_rage()  # Сбрасываем состояние ярости
+
         self.check_defeat()  # Проверяем поражение
-        self.check_victory()  # Проверяем победу
+        self.check_victory()  # Проверяем победуыыыыыыыыыы
 
         self.draw()
         pygame.display.flip()
@@ -331,6 +406,12 @@ class DesertLevel:
         for enemy in self.enemies:
             enemy.draw(self.screen, self.camera)  # Отрисовываем врагов
 
+        for potion in self.potions:
+            potion.draw(self.screen, self.camera)  # Отрисовываем зелья
+
+        if self.player.state_rage:
+            self.draw_rage_timer()
+
         self.draw_timer()
 
     def draw_timer(self):
@@ -341,6 +422,17 @@ class DesertLevel:
         text_rect = timer_text.get_rect(center=(self.screen.get_width() // 2, 20))
         self.screen.blit(timer_text, text_rect)
 
+    def draw_rage_timer(self):
+        """Отрисовка таймера яроски игрока"""
+        elapsed_time = int(time.time() - self.rage_start_time)
+        remaining_time = max(5 - elapsed_time, 0)  # Оставшееся время, но не меньше 0
+
+        font = pygame.font.Font("textures/font/Aladin-Regular.ttf", 36)
+        timer_text = font.render(f"Time of rage: {remaining_time}s", True, (189, 0, 183))
+
+        text_rect = timer_text.get_rect(center=(self.screen.get_width() // 2, 60))
+        self.screen.blit(timer_text, text_rect)
+
     def check_defeat(self):
         """Проверяет столкновение игрока с врагами"""
         player_rect = pygame.Rect(self.player.x, self.player.y, 35, 35)  # Хитбокс игрока
@@ -348,8 +440,11 @@ class DesertLevel:
         for enemy in self.enemies:
             enemy_rect = pygame.Rect(enemy.x, enemy.y, 35, 35)  # Хитбокс врага
             if player_rect.colliderect(enemy_rect):  # Проверяем столкновение
-                self.game_over(False)  # Вызываем проигрыш
-                return
+                if self.player.state_rage:
+                    self.enemies.remove(enemy)  # Удаляем врага, если игрок в состоянии ярости
+                else:
+                    self.game_over(False)  # Вызываем проигрыш
+                return  # Выходим из метода после обработки столкновения
 
     def check_victory(self):
         """Проверяет, дошёл ли игрок до выхода"""
@@ -368,12 +463,14 @@ class DesertLevel:
         self.screen.fill("BLACK")
 
         if victory:
-            self.game.completed_levels.add("Desert")  # Добавляем уровень в пройденные
+            self.game.completed_levels.add(self.next_level)  # Добавляем уровень в пройденные
             with open("data/progress.txt", "r") as file:
                 lines = file.readlines()
-            if "Desert" not in lines:
-                with open("data/progress.txt", "w") as file:
-                    file.write("Desert\n")
+
+            # Проверяем, есть ли уровень в файле
+            if self.next_level + "\n" not in lines:
+                with open("data/progress.txt", "a") as file:  # Открываем файл в режиме добавления
+                    file.write(self.next_level + "\n")  # Добавляем уровень в файл
 
         # Вычисляем время прохождения
         elapsed_time = int(time.time() - self.start_time)
@@ -425,7 +522,11 @@ class Game:
     def start_level(self, level_name):
         """Запуск уровня"""
         if level_name == "Desert":
-            self.current_screen = DesertLevel(self.screen, self)
+            self.current_screen = ShowLevel(self.screen, DESERT_LEVEL_TEXTURES, DESERT_LEVEL_MAP, "Ocean", self)
+        elif level_name == "Ocean":
+            self.current_screen = ShowLevel(self.screen, OCEAN_LEVEL_TEXTURES, DESERT_LEVEL_MAP, "Hell", self)
+        elif level_name == "Hell":
+            self.current_screen = ShowLevel(self.screen, HELL_LEVEL_TEXTURES, HELL_LEVEL_MAP, "Hell", self)
 
     def load_progress(self):
         """Загрузка прогресса"""
@@ -453,7 +554,7 @@ class Game:
                 if isinstance(self.current_screen, MainScreen):
                     self.current_screen.handle_click(*event.pos)
             elif event.type == pygame.KEYDOWN or event.type == pygame.KEYUP:
-                if isinstance(self.current_screen, DesertLevel):
+                if isinstance(self.current_screen, ShowLevel):
                     self.current_screen.handle_events(event)
 
     def quit(self):
