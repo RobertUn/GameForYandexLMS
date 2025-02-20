@@ -1,5 +1,6 @@
 import random
 import time
+import sys
 
 import pygame
 
@@ -66,9 +67,9 @@ class MainScreen:
         if 350 < x < 450:
             if 285 < y < 315:
                 self.game.start_level("Desert")
-            elif 335 < y < 365:
+            elif 335 < y < 365 and "Ocean" in self.completed_levels:
                 self.game.start_level("Ocean")
-            elif 385 < y < 415:
+            elif 385 < y < 415 and "Hell" in self.completed_levels:
                 self.game.start_level("Hell")
 
     def update(self):
@@ -152,8 +153,8 @@ class Player:
 
     def check_collision(self, x, y, level_map):
         """Проверяет, есть ли перед игроком стена с уменьшенным хитбоксом"""
-        hitbox_offset = 5  # Отступ с каждой стороны (уменьшение хитбокса)
-        hitbox_size = 30  # Новый размер хитбокса
+        hitbox_offset = 7  # Отступ с каждой стороны (уменьшение хитбокса)
+        hitbox_size = 25  # Новый размер хитбокса
 
         # Четыре точки по краям уменьшенного хитбокса
         corners = [
@@ -386,8 +387,8 @@ class ShowLevel:
         if self.player.state_rage and time.time() - self.rage_start_time > 5:  # 5 секунд ярости
             self.player.deactivate_rage()  # Сбрасываем состояние ярости
 
+        self.check_victory()  # Проверяем победу
         self.check_defeat()  # Проверяем поражение
-        self.check_victory()  # Проверяем победуыыыыыыыыыы
 
         self.draw()
         pygame.display.flip()
@@ -435,7 +436,7 @@ class ShowLevel:
 
     def check_defeat(self):
         """Проверяет столкновение игрока с врагами"""
-        player_rect = pygame.Rect(self.player.x, self.player.y, 35, 35)  # Хитбокс игрока
+        player_rect = pygame.Rect(self.player.x, self.player.y, 30, 30)  # Хитбокс игрока
 
         for enemy in self.enemies:
             enemy_rect = pygame.Rect(enemy.x, enemy.y, 35, 35)  # Хитбокс врага
@@ -524,7 +525,7 @@ class Game:
         if level_name == "Desert":
             self.current_screen = ShowLevel(self.screen, DESERT_LEVEL_TEXTURES, DESERT_LEVEL_MAP, "Ocean", self)
         elif level_name == "Ocean":
-            self.current_screen = ShowLevel(self.screen, OCEAN_LEVEL_TEXTURES, DESERT_LEVEL_MAP, "Hell", self)
+            self.current_screen = ShowLevel(self.screen, OCEAN_LEVEL_TEXTURES, OCEAN_LEVEL_MAP, "Hell", self)
         elif level_name == "Hell":
             self.current_screen = ShowLevel(self.screen, HELL_LEVEL_TEXTURES, HELL_LEVEL_MAP, "Hell", self)
 
@@ -549,7 +550,7 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                exit()
+                sys.exit()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if isinstance(self.current_screen, MainScreen):
                     self.current_screen.handle_click(*event.pos)
